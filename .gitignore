@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+
+# Data files
+data/raw/*.csv
+data/raw/*.zip
+data/processed/*.csv
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb
+
+# VS Code
+.vscode/
+
+# Environment
+.env 
