@@ -54,23 +54,35 @@ def get_normal_measurements(measurement_df, instrument_df, pollutant_name=None, 
     
     return normal_measurements
 
+def get_season(month):
+    """Get season from month number."""
+    if month in [12, 1, 2]:
+        return 'Winter'
+    elif month in [3, 4, 5]:
+        return 'Spring'
+    elif month in [6, 7, 8]:
+        return 'Summer'
+    else:  # month in [9, 10, 11]
+        return 'Fall'
+
 def answer_questions(measurement_df, instrument_df, pollutant_df):
     """Answer all questions for Task 1."""
     # Q1: Average daily SO2 concentration across all districts
     so2_measurements = get_normal_measurements(measurement_df, instrument_df, 'SO2', pollutant_df)
-    daily_so2 = so2_measurements.groupby(['Station code', pd.Grouper(key='Measurement date', freq='D')])['SO2'].mean()
-    q1 = daily_so2.mean()
+    # Calculate daily average for each station
+    so2_measurements['date'] = so2_measurements['Measurement date'].dt.date
+    daily_so2 = so2_measurements.groupby(['Station code', 'date'])['SO2'].mean()
+    # Average across stations
+    q1 = daily_so2.groupby('Station code').mean().mean()
     
     # Q2: Average CO levels per season at station 209
     co_measurements = get_normal_measurements(measurement_df, instrument_df, 'CO', pollutant_df)
     station_209 = co_measurements[co_measurements['Station code'] == 209].copy()
     
-    # Ensure correct season assignment
-    station_209.loc[station_209['Month'] == 12, 'Season'] = 'Winter'
-    station_209.loc[station_209['Month'] == 3, 'Season'] = 'Spring'
-    station_209.loc[station_209['Month'] == 6, 'Season'] = 'Summer'
-    station_209.loc[station_209['Month'] == 9, 'Season'] = 'Fall'
+    # Apply season to all months
+    station_209['Season'] = station_209['Measurement date'].dt.month.map(get_season)
     
+    # Calculate average CO by season
     q2 = station_209.groupby('Season')['CO'].mean().round(5).to_dict()
     # Ensure all seasons are present
     all_seasons = {'Winter': 0.0, 'Spring': 0.0, 'Summer': 0.0, 'Fall': 0.0}
@@ -78,6 +90,7 @@ def answer_questions(measurement_df, instrument_df, pollutant_df):
     
     # Q3: Hour with highest O3 variability
     o3_measurements = get_normal_measurements(measurement_df, instrument_df, 'O3', pollutant_df)
+    # Calculate standard deviation for each hour across all stations
     q3 = o3_measurements.groupby('Hour')['O3'].std().idxmax()
     
     # Q4: Station with most "Abnormal data" measurements
@@ -97,6 +110,7 @@ def answer_questions(measurement_df, instrument_df, pollutant_df):
     def get_category(value):
         if pd.isna(value):
             return None
+        # Use inclusive ranges for classification
         if value <= pm25_thresholds['Good']:
             return 'Good'
         elif value <= pm25_thresholds['Normal']:
@@ -106,7 +120,9 @@ def answer_questions(measurement_df, instrument_df, pollutant_df):
         else:
             return 'Very bad'
     
-    pm25_categories = pm25_measurements['PM2.5'].apply(get_category)
+    # Drop NaN values before categorizing
+    pm25_data = pm25_measurements['PM2.5'].dropna()
+    pm25_categories = pm25_data.apply(get_category)
     q6 = pm25_categories.value_counts().to_dict()
     
     # Format answers
