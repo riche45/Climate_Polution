@@ -2,11 +2,6 @@ import pandas as pd
 import numpy as np
 import json
 from pathlib import Path
-from decimal import Decimal, ROUND_HALF_UP
-from mpmath import mp
-
-# Configurar mpmath para usar 50 dígitos de precisión
-mp.dps = 50
 
 def load_processed_data():
     """Load processed datasets."""
@@ -57,9 +52,6 @@ def get_normal_measurements(measurement_df, instrument_df, pollutant_name=None, 
         on=['Measurement date', 'Station code']
     )
     
-    # Drop any remaining NaN values
-    normal_measurements = normal_measurements.dropna()
-    
     return normal_measurements
 
 def get_season(month):
@@ -73,12 +65,6 @@ def get_season(month):
     else:  # month in [9, 10, 11]
         return 'Fall'
 
-def precise_mean(values):
-    """Calculate mean using mpmath for high precision."""
-    if len(values) == 0:
-        return 0
-    return float(mp.fsum(values) / len(values))
-
 def answer_questions(measurement_df, instrument_df, pollutant_df):
     """Answer all questions for Task 1."""
     # Q1: Average daily SO2 concentration across all districts
@@ -87,8 +73,10 @@ def answer_questions(measurement_df, instrument_df, pollutant_df):
     so2_measurements['date'] = so2_measurements['Measurement date'].dt.date
     # Calculate daily average in one step
     daily_so2 = so2_measurements.groupby(['Station code', 'date'])['SO2'].mean().reset_index()
-    # Calculate final average using median of all daily averages
-    q1 = daily_so2['SO2'].median()
+    # Calculate station average
+    station_avg = daily_so2.groupby('Station code')['SO2'].mean()
+    # Calculate final average
+    q1 = station_avg.mean()
     
     # Q2: Average CO levels per season at station 209
     co_measurements = get_normal_measurements(measurement_df, instrument_df, 'CO', pollutant_df)
