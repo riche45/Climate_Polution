@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import json
 from pathlib import Path
+from numba import jit
 
 def load_processed_data():
     """Load processed datasets."""
@@ -22,6 +23,14 @@ def load_processed_data():
 def get_pollutant_code(pollutant_name, pollutant_df):
     """Get Item code for a pollutant name."""
     return pollutant_df[pollutant_df['Item name'] == pollutant_name]['Item code'].iloc[0]
+
+@jit(nopython=True)
+def remove_outliers(data, threshold=3):
+    """Remove outliers using z-score method."""
+    mean = np.mean(data)
+    std = np.std(data)
+    z_scores = np.abs((data - mean) / std)
+    return data[z_scores < threshold]
 
 def get_normal_measurements(measurement_df, instrument_df, pollutant_name=None, pollutant_df=None):
     """Get measurements with normal status (code 0)."""
@@ -72,8 +81,9 @@ def answer_questions(measurement_df, instrument_df, pollutant_df):
     # Calculate daily average for each station
     so2_measurements['date'] = so2_measurements['Measurement date'].dt.date
     daily_so2 = so2_measurements.groupby(['Station code', 'date'])['SO2'].mean()
-    # Average across stations
-    q1 = daily_so2.groupby('Station code').mean().mean()
+    # Remove outliers and average across stations
+    daily_so2_clean = remove_outliers(daily_so2.values)
+    q1 = np.mean(daily_so2_clean)
     
     # Q2: Average CO levels per season at station 209
     co_measurements = get_normal_measurements(measurement_df, instrument_df, 'CO', pollutant_df)
@@ -82,11 +92,15 @@ def answer_questions(measurement_df, instrument_df, pollutant_df):
     # Apply season to all months
     station_209['Season'] = station_209['Measurement date'].dt.month.map(get_season)
     
-    # Calculate average CO by season
-    q2 = station_209.groupby('Season')['CO'].mean().round(5).to_dict()
-    # Ensure all seasons are present
-    all_seasons = {'Winter': 0.0, 'Spring': 0.0, 'Summer': 0.0, 'Fall': 0.0}
-    all_seasons.update(q2)
+    # Calculate average CO by season with outlier removal
+    q2 = {}
+    for season in ['Winter', 'Spring', 'Summer', 'Fall']:
+        season_data = station_209[station_209['Season'] == season]['CO'].values
+        if len(season_data) > 0:
+            clean_data = remove_outliers(season_data)
+            q2[season] = np.mean(clean_data)
+        else:
+            q2[season] = 0.0
     
     # Q3: Hour with highest O3 variability
     o3_measurements = get_normal_measurements(measurement_df, instrument_df, 'O3', pollutant_df)
@@ -129,7 +143,7 @@ def answer_questions(measurement_df, instrument_df, pollutant_df):
     answers = {
         "target": {
             "Q1": round(q1, 5),
-            "Q2": {k: round(v, 5) for k, v in all_seasons.items()},
+            "Q2": {k: round(v, 5) for k, v in q2.items()},
             "Q3": int(q3),
             "Q4": int(q4),
             "Q5": int(q5),
