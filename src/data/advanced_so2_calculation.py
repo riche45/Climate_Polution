@@ -5,6 +5,7 @@ import json
 from sklearn.ensemble import IsolationForest
 from scipy import stats
 from datetime import datetime
+from scipy.stats import gaussian_kde
 
 def load_data():
     processed_dir = Path("data/processed")
@@ -33,6 +34,18 @@ def calculate_station_reliability(so2_data):
     
     reliability_metrics.columns = ['count', 'mean', 'std', 'skewness', 'iqr', 'kurtosis']
     
+    # Calcular moda para cada estación
+    station_modes = []
+    for station in reliability_metrics.index:
+        station_data = so2_data[so2_data['Station code'] == station]['SO2']
+        kde = gaussian_kde(station_data)
+        x_range = np.linspace(station_data.min(), station_data.max(), 100)
+        density = kde(x_range)
+        mode = x_range[np.argmax(density)]
+        station_modes.append(mode)
+    
+    reliability_metrics['mode'] = station_modes
+    
     # Normalizar métricas
     reliability_metrics['count_norm'] = (reliability_metrics['count'] - reliability_metrics['count'].min()) / (reliability_metrics['count'].max() - reliability_metrics['count'].min())
     reliability_metrics['std_norm'] = 1 - (reliability_metrics['std'] - reliability_metrics['std'].min()) / (reliability_metrics['std'].max() - reliability_metrics['std'].min())
@@ -42,16 +55,16 @@ def calculate_station_reliability(so2_data):
     
     # Calcular score de confiabilidad con pesos ajustados
     reliability_metrics['reliability_score'] = (
-        reliability_metrics['count_norm'] * 0.35 +
-        reliability_metrics['std_norm'] * 0.25 +
+        reliability_metrics['count_norm'] * 0.30 +
+        reliability_metrics['std_norm'] * 0.20 +
         reliability_metrics['skewness_norm'] * 0.15 +
         reliability_metrics['iqr_norm'] * 0.15 +
-        reliability_metrics['kurtosis_norm'] * 0.10
+        reliability_metrics['kurtosis_norm'] * 0.20
     )
     
     return reliability_metrics
 
-def detect_anomalies(so2_data, contamination=0.03):
+def detect_anomalies(so2_data, contamination=0.02):
     """Detección de anomalías usando Isolation Forest con umbral ajustado"""
     iso_forest = IsolationForest(contamination=contamination, random_state=42)
     anomalies = iso_forest.fit_predict(so2_data[['SO2']])
@@ -97,7 +110,7 @@ def calculate_temporal_weights(so2_data):
     # Obtener la hora actual (promedio de todas las horas)
     current_hour = so2_data['hour'].mean()
     
-    # Calcular pesos por hora
+    # Calcular pesos por hora usando una distribución gaussiana
     hourly_weights = np.exp(-0.1 * (np.arange(24) - current_hour)**2)
     hourly_weights = hourly_weights / hourly_weights.sum()
     
@@ -109,10 +122,23 @@ def calculate_temporal_weights(so2_data):
     
     return hourly_weights, daily_weights, monthly_weights
 
+def estimate_mode(so2_data, station):
+    """Estima la moda usando kernel density estimation"""
+    station_data = so2_data[so2_data['Station code'] == station]['SO2']
+    kde = gaussian_kde(station_data)
+    
+    # Crear puntos para evaluar la densidad
+    x_range = np.linspace(station_data.min(), station_data.max(), 100)
+    density = kde(x_range)
+    
+    # Encontrar el punto con máxima densidad
+    mode = x_range[np.argmax(density)]
+    return mode
+
 def calculate_weighted_so2(so2_data, reliability_metrics, correlation_matrix):
     """Calcula el valor final de SO2 usando pesos basados en confiabilidad y correlaciones"""
-    # Filtrar estaciones confiables (score > 0.7)
-    reliable_stations = reliability_metrics[reliability_metrics['reliability_score'] > 0.7].index
+    # Filtrar estaciones confiables (score > 0.75)
+    reliable_stations = reliability_metrics[reliability_metrics['reliability_score'] > 0.75].index
     so2_data = so2_data[so2_data['Station code'].isin(reliable_stations)]
     
     # Calcular pesos iniciales basados en confiabilidad
@@ -138,11 +164,14 @@ def calculate_weighted_so2(so2_data, reliability_metrics, correlation_matrix):
     # Normalizar pesos
     station_weights = station_weights / station_weights.sum()
     
-    # Calcular mediana ponderada por estación
-    station_medians = so2_data.groupby('Station code')['SO2'].median()
-    weighted_median = np.average(station_medians, weights=station_weights)
+    # Calcular moda ponderada por estación usando KDE
+    station_modes = pd.Series(index=reliable_stations)
+    for station in reliable_stations:
+        station_modes[station] = estimate_mode(so2_data, station)
     
-    return weighted_median
+    weighted_mode = np.average(station_modes, weights=station_weights)
+    
+    return weighted_mode
 
 def main():
     print("Cargando datos...")
