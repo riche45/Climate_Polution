@@ -6,6 +6,8 @@ from sklearn.ensemble import IsolationForest
 from scipy import stats
 from datetime import datetime
 from scipy.stats import gaussian_kde
+from sklearn.cluster import KMeans, DBSCAN
+from sklearn.preprocessing import StandardScaler
 
 def load_data():
     processed_dir = Path("data/processed")
@@ -135,6 +137,25 @@ def estimate_mode(so2_data, station):
     mode = x_range[np.argmax(density)]
     return mode
 
+def perform_clustering(so2_data, reliability_metrics):
+    """Realiza clustering de estaciones basado en sus características"""
+    # Preparar datos para clustering
+    features = reliability_metrics[['mean', 'std', 'skewness', 'kurtosis', 'mode']].copy()
+    scaler = StandardScaler()
+    features_scaled = scaler.fit_transform(features)
+    
+    # Aplicar K-means
+    kmeans = KMeans(n_clusters=3, random_state=42)
+    reliability_metrics['cluster'] = kmeans.fit_predict(features_scaled)
+    
+    # Calcular confiabilidad del cluster
+    cluster_reliability = reliability_metrics.groupby('cluster')['reliability_score'].mean()
+    
+    # Asignar peso adicional a estaciones en clusters confiables
+    reliability_metrics['cluster_weight'] = reliability_metrics['cluster'].map(cluster_reliability)
+    
+    return reliability_metrics
+
 def calculate_weighted_so2(so2_data, reliability_metrics, correlation_matrix):
     """Calcula el valor final de SO2 usando pesos basados en confiabilidad y correlaciones"""
     # Filtrar estaciones confiables (score > 0.75)
@@ -148,6 +169,9 @@ def calculate_weighted_so2(so2_data, reliability_metrics, correlation_matrix):
     for station in reliable_stations:
         correlations = correlation_matrix.loc[station, reliable_stations]
         station_weights[station] *= (1 - correlations.mean())
+    
+    # Ajustar pesos con pesos de cluster
+    station_weights *= reliability_metrics.loc[reliable_stations, 'cluster_weight']
     
     # Calcular pesos temporales
     hourly_weights, daily_weights, monthly_weights = calculate_temporal_weights(so2_data)
@@ -207,6 +231,11 @@ def main():
     
     print("\nCalculando correlaciones entre estaciones...")
     correlation_matrix = calculate_station_correlations(so2_data)
+    
+    print("\nRealizando clustering de estaciones...")
+    reliability_metrics = perform_clustering(so2_data, reliability_metrics)
+    print("\nDistribución de clusters:")
+    print(reliability_metrics.groupby('cluster').size())
     
     print("\nCalculando valor final de SO2...")
     so2_value = calculate_weighted_so2(so2_data, reliability_metrics, correlation_matrix)
