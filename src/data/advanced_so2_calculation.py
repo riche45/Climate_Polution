@@ -30,11 +30,14 @@ def calculate_station_reliability(so2_data):
             ('std', 'std'),
             ('skewness', lambda x: stats.skew(x)),
             ('iqr', lambda x: stats.iqr(x)),
-            ('kurtosis', lambda x: stats.kurtosis(x))
+            ('kurtosis', lambda x: stats.kurtosis(x)),
+            ('q25', lambda x: np.percentile(x, 25)),
+            ('q75', lambda x: np.percentile(x, 75)),
+            ('time_variance', lambda x: np.var(np.diff(x)))
         ]
     })
     
-    reliability_metrics.columns = ['count', 'mean', 'std', 'skewness', 'iqr', 'kurtosis']
+    reliability_metrics.columns = ['count', 'mean', 'std', 'skewness', 'iqr', 'kurtosis', 'q25', 'q75', 'time_variance']
     
     # Calcular moda para cada estación
     station_modes = []
@@ -54,14 +57,16 @@ def calculate_station_reliability(so2_data):
     reliability_metrics['skewness_norm'] = 1 - (abs(reliability_metrics['skewness']) - abs(reliability_metrics['skewness']).min()) / (abs(reliability_metrics['skewness']).max() - abs(reliability_metrics['skewness']).min())
     reliability_metrics['iqr_norm'] = 1 - (reliability_metrics['iqr'] - reliability_metrics['iqr'].min()) / (reliability_metrics['iqr'].max() - reliability_metrics['iqr'].min())
     reliability_metrics['kurtosis_norm'] = 1 - (abs(reliability_metrics['kurtosis']) - abs(reliability_metrics['kurtosis']).min()) / (abs(reliability_metrics['kurtosis']).max() - abs(reliability_metrics['kurtosis']).min())
+    reliability_metrics['time_variance_norm'] = 1 - (reliability_metrics['time_variance'] - reliability_metrics['time_variance'].min()) / (reliability_metrics['time_variance'].max() - reliability_metrics['time_variance'].min())
     
     # Calcular score de confiabilidad con pesos ajustados
     reliability_metrics['reliability_score'] = (
-        reliability_metrics['count_norm'] * 0.30 +
+        reliability_metrics['count_norm'] * 0.25 +
         reliability_metrics['std_norm'] * 0.20 +
         reliability_metrics['skewness_norm'] * 0.15 +
-        reliability_metrics['iqr_norm'] * 0.15 +
-        reliability_metrics['kurtosis_norm'] * 0.20
+        reliability_metrics['iqr_norm'] * 0.10 +
+        reliability_metrics['kurtosis_norm'] * 0.20 +
+        reliability_metrics['time_variance_norm'] * 0.10
     )
     
     return reliability_metrics
@@ -222,7 +227,7 @@ def calculate_geographic_cohesion(labels, station_coords):
 def perform_clustering(so2_data, reliability_metrics):
     """Realiza clustering de estaciones basado en sus características"""
     # Preparar datos para clustering
-    features = reliability_metrics[['mean', 'std', 'skewness', 'kurtosis', 'mode']].copy()
+    features = reliability_metrics[['mean', 'std', 'skewness', 'kurtosis', 'mode', 'q25', 'q75', 'time_variance']].copy()
     scaler = StandardScaler()
     features_scaled = scaler.fit_transform(features)
     
@@ -233,9 +238,9 @@ def perform_clustering(so2_data, reliability_metrics):
         station_coords.append([station_data['Latitude'], station_data['Longitude']])
     station_coords = np.array(station_coords)
     
-    # Probar diferentes configuraciones de DBSCAN
-    eps_values = [0.3, 0.5, 0.7, 1.0]
-    min_samples_values = [3, 4, 5, 6]
+    # Usar configuraciones menos estrictas de DBSCAN
+    eps_values = [0.4, 0.5, 0.6, 0.7]
+    min_samples_values = [2, 3, 4]
     best_score = -1
     best_labels = None
     
@@ -251,6 +256,11 @@ def perform_clustering(so2_data, reliability_metrics):
                 best_score = score
                 best_labels = labels
     
+    # Si no se encontraron clusters buenos, usar K-means como fallback
+    if best_labels is None or len(np.unique(best_labels)) <= 1:
+        kmeans = KMeans(n_clusters=3, random_state=42)
+        best_labels = kmeans.fit_predict(features_scaled)
+    
     # Usar los mejores labels encontrados
     reliability_metrics['cluster'] = best_labels
     
@@ -263,7 +273,45 @@ def perform_clustering(so2_data, reliability_metrics):
     # Ajustar pesos basados en la estabilidad temporal
     reliability_metrics['temporal_stability'] = calculate_temporal_stability(so2_data, reliability_metrics.index)
     
+    # Asignar peso geográfico basado en la distancia al centroide de estaciones confiables
+    reliability_metrics['geographic_weight'] = calculate_geographic_weights(so2_data, reliability_metrics)
+    
     return reliability_metrics
+
+def calculate_geographic_weights(so2_data, reliability_metrics):
+    """Calcula pesos geográficos basados en la distancia al centroide de estaciones confiables"""
+    # Filtrar estaciones confiables
+    reliable_stations = reliability_metrics[reliability_metrics['reliability_score'] > 0.80].index
+    
+    # Obtener coordenadas de estaciones confiables
+    reliable_coords = []
+    for station in reliable_stations:
+        station_data = so2_data[so2_data['Station code'] == station].iloc[0]
+        reliable_coords.append([station_data['Latitude'], station_data['Longitude']])
+    
+    if not reliable_coords:
+        return pd.Series(1, index=reliability_metrics.index)
+    
+    # Calcular centroide de estaciones confiables
+    centroid = np.mean(reliable_coords, axis=0)
+    
+    # Calcular distancias al centroide
+    distances = []
+    for station in reliability_metrics.index:
+        station_data = so2_data[so2_data['Station code'] == station].iloc[0]
+        dist = calculate_geographic_distance(
+            station_data['Latitude'], station_data['Longitude'],
+            centroid[0], centroid[1]
+        )
+        distances.append(dist)
+    
+    # Convertir distancias a pesos (menor distancia = mayor peso)
+    weights = 1 / (1 + np.array(distances))
+    
+    # Normalizar pesos
+    weights = (weights - weights.min()) / (weights.max() - weights.min())
+    
+    return pd.Series(weights, index=reliability_metrics.index)
 
 def calculate_temporal_stability(so2_data, stations):
     """Calcula la estabilidad temporal de cada estación"""
@@ -293,23 +341,30 @@ def calculate_temporal_stability(so2_data, stations):
 
 def calculate_adaptive_weights(so2_data, reliability_metrics, correlation_matrix):
     """Calcula pesos adaptativos basados en múltiples factores"""
-    # Filtrar estaciones confiables (score > 0.75)
-    reliable_stations = reliability_metrics[reliability_metrics['reliability_score'] > 0.75].index
-    so2_data = so2_data[so2_data['Station code'].isin(reliable_stations)]
+    # Obtener las estaciones del dataframe filtrado
+    available_stations = so2_data['Station code'].unique()
+    reliable_stations = [station for station in available_stations if station in reliability_metrics.index]
     
-    # Pesos base de confiabilidad
-    station_weights = reliability_metrics.loc[reliable_stations, 'reliability_score']
+    if len(reliable_stations) == 0:
+        return pd.Series()
     
-    # Ajustar por correlaciones
-    for station in reliable_stations:
-        correlations = correlation_matrix.loc[station, reliable_stations]
-        station_weights[station] *= (1 - correlations.mean())
+    # Pesos base de confiabilidad - Exponencial para aumentar el contraste
+    station_weights = reliability_metrics.loc[reliable_stations, 'reliability_score'] ** 1.5
     
-    # Ajustar por cluster
-    station_weights *= reliability_metrics.loc[reliable_stations, 'cluster_weight']
+    # Ajustar por correlaciones - Penalizar correlaciones altas
+    if len(reliable_stations) > 1:
+        for station in reliable_stations:
+            if station in correlation_matrix.index and all(s in correlation_matrix.columns for s in reliable_stations):
+                correlations = correlation_matrix.loc[station, reliable_stations]
+                station_weights[station] *= (1 - correlations.mean()) ** 1.5
     
-    # Ajustar por estabilidad temporal
-    station_weights *= reliability_metrics.loc[reliable_stations, 'temporal_stability']
+    # Ajustar por cluster si existe la columna
+    if 'cluster_weight' in reliability_metrics.columns:
+        station_weights *= reliability_metrics.loc[reliable_stations, 'cluster_weight'] ** 1.2
+    
+    # Ajustar por estabilidad temporal si existe la columna
+    if 'temporal_stability' in reliability_metrics.columns:
+        station_weights *= reliability_metrics.loc[reliable_stations, 'temporal_stability'] ** 1.2
     
     # Calcular pesos temporales
     hourly_weights, daily_weights, monthly_weights = calculate_temporal_weights(so2_data)
@@ -317,34 +372,73 @@ def calculate_adaptive_weights(so2_data, reliability_metrics, correlation_matrix
     # Ajustar por patrones temporales
     for station in reliable_stations:
         station_data = so2_data[so2_data['Station code'] == station]
-        hour_weight = hourly_weights[station_data['hour'].iloc[0]]
-        day_weight = daily_weights[station_data['day_of_week'].iloc[0]]
-        month_weight = monthly_weights[station_data['month'].iloc[0] - 1]
-        
-        station_weights[station] *= (hour_weight + day_weight + month_weight) / 3
+        if len(station_data) > 0:  # Verificar que haya datos
+            hour_weight = hourly_weights[station_data['hour'].iloc[0] % 24]
+            day_weight = daily_weights[station_data['day_of_week'].iloc[0] % 7]
+            month_weight = monthly_weights[(station_data['month'].iloc[0] - 1) % 12]
+            
+            station_weights[station] *= (hour_weight + day_weight + month_weight) / 3
     
     # Normalizar pesos
-    station_weights = station_weights / station_weights.sum()
+    if station_weights.sum() > 0:  # Verificar que hay pesos positivos
+        station_weights = station_weights / station_weights.sum()
     
     return station_weights
 
 def calculate_weighted_so2(so2_data, reliability_metrics, correlation_matrix):
-    """Calcula el valor final de SO2 usando pesos adaptativos"""
+    """Calcula el valor final de SO2 usando pesos adaptativos refinados"""
     # Filtrar estaciones confiables
     reliable_stations = reliability_metrics[reliability_metrics['reliability_score'] > 0.75].index
-    so2_data = so2_data[so2_data['Station code'].isin(reliable_stations)]
+    if len(reliable_stations) < 3:  # Si hay muy pocas estaciones confiables, bajar el umbral
+        reliable_stations = reliability_metrics[reliability_metrics['reliability_score'] > 0.70].index
+    
+    if len(reliable_stations) == 0:  # Si no hay estaciones confiables, usar las top 5
+        reliable_stations = reliability_metrics.sort_values('reliability_score', ascending=False).head(5).index
+    
+    so2_data_filtered = so2_data[so2_data['Station code'].isin(reliable_stations)]
     
     # Calcular pesos adaptativos
-    station_weights = calculate_adaptive_weights(so2_data, reliability_metrics, correlation_matrix)
+    station_weights = calculate_adaptive_weights(so2_data_filtered, reliability_metrics, correlation_matrix)
+    
+    # Aplicar peso geográfico
+    station_weights *= reliability_metrics.loc[reliable_stations, 'geographic_weight']
+    
+    # Asegurar que los pesos sean positivos y sumen 1
+    if station_weights.sum() > 0:
+        station_weights = station_weights / station_weights.sum()
+    else:  # Si los pesos son todos cero, usar pesos uniformes
+        station_weights = pd.Series(1.0 / len(reliable_stations), index=reliable_stations)
     
     # Calcular moda ponderada por estación usando KDE
     station_modes = pd.Series(index=reliable_stations)
     for station in reliable_stations:
-        station_modes[station] = estimate_mode(so2_data, station)
+        station_modes[station] = estimate_mode(so2_data_filtered, station)
     
-    weighted_mode = np.average(station_modes, weights=station_weights)
+    # Usar promedio ponderado entre media y moda
+    station_means = so2_data_filtered.groupby('Station code')['SO2'].mean()
     
-    return weighted_mode
+    weighted_values = pd.Series(index=reliable_stations)
+    for station in reliable_stations:
+        if station in station_means.index:
+            weighted_values[station] = 0.3 * station_means[station] + 0.7 * station_modes[station]
+        else:
+            weighted_values[station] = station_modes[station]  # Si no hay media, usar solo la moda
+    
+    if len(weighted_values) == 0 or weighted_values.isna().all():
+        # Como fallback, usar la media global
+        return so2_data['SO2'].mean()
+    
+    # Eliminar valores NaN
+    valid_stations = weighted_values.dropna().index
+    if len(valid_stations) == 0:
+        return so2_data['SO2'].mean()
+        
+    valid_weights = station_weights[valid_stations]
+    valid_weights = valid_weights / valid_weights.sum()
+    
+    weighted_result = np.average(weighted_values[valid_stations], weights=valid_weights)
+    
+    return weighted_result
 
 def main():
     print("Cargando datos...")
@@ -370,7 +464,12 @@ def main():
     print(reliability_metrics.sort_values('reliability_score', ascending=False).head())
     
     print("\nDetectando anomalías...")
-    so2_data = detect_anomalies(so2_data)
+    # Detectar anomalías usando umbral adaptativo
+    q75 = so2_data['SO2'].quantile(0.75)
+    q25 = so2_data['SO2'].quantile(0.25)
+    iqr = q75 - q25
+    anomaly_threshold = q75 + 1.5 * iqr  # Método del rango intercuartílico
+    so2_data['is_anomaly'] = np.where(so2_data['SO2'] > anomaly_threshold, -1, 1)  # -1 para anomalías, 1 para datos normales
     print("\nEstadísticas de anomalías:")
     print(so2_data.groupby('is_anomaly')['SO2'].describe())
     
