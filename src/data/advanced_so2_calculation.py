@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 from sklearn.ensemble import IsolationForest
 from scipy import stats
+from datetime import datetime
 
 def load_data():
     processed_dir = Path("data/processed")
@@ -25,30 +26,33 @@ def calculate_station_reliability(so2_data):
             ('mean', 'mean'),
             ('std', 'std'),
             ('skewness', lambda x: stats.skew(x)),
-            ('iqr', lambda x: stats.iqr(x))
+            ('iqr', lambda x: stats.iqr(x)),
+            ('kurtosis', lambda x: stats.kurtosis(x))
         ]
     })
     
-    reliability_metrics.columns = ['count', 'mean', 'std', 'skewness', 'iqr']
+    reliability_metrics.columns = ['count', 'mean', 'std', 'skewness', 'iqr', 'kurtosis']
     
     # Normalizar métricas
     reliability_metrics['count_norm'] = (reliability_metrics['count'] - reliability_metrics['count'].min()) / (reliability_metrics['count'].max() - reliability_metrics['count'].min())
     reliability_metrics['std_norm'] = 1 - (reliability_metrics['std'] - reliability_metrics['std'].min()) / (reliability_metrics['std'].max() - reliability_metrics['std'].min())
     reliability_metrics['skewness_norm'] = 1 - (abs(reliability_metrics['skewness']) - abs(reliability_metrics['skewness']).min()) / (abs(reliability_metrics['skewness']).max() - abs(reliability_metrics['skewness']).min())
     reliability_metrics['iqr_norm'] = 1 - (reliability_metrics['iqr'] - reliability_metrics['iqr'].min()) / (reliability_metrics['iqr'].max() - reliability_metrics['iqr'].min())
+    reliability_metrics['kurtosis_norm'] = 1 - (abs(reliability_metrics['kurtosis']) - abs(reliability_metrics['kurtosis']).min()) / (abs(reliability_metrics['kurtosis']).max() - abs(reliability_metrics['kurtosis']).min())
     
-    # Calcular score de confiabilidad
+    # Calcular score de confiabilidad con pesos ajustados
     reliability_metrics['reliability_score'] = (
-        reliability_metrics['count_norm'] * 0.4 +
-        reliability_metrics['std_norm'] * 0.3 +
-        reliability_metrics['skewness_norm'] * 0.2 +
-        reliability_metrics['iqr_norm'] * 0.1
+        reliability_metrics['count_norm'] * 0.35 +
+        reliability_metrics['std_norm'] * 0.25 +
+        reliability_metrics['skewness_norm'] * 0.15 +
+        reliability_metrics['iqr_norm'] * 0.15 +
+        reliability_metrics['kurtosis_norm'] * 0.10
     )
     
     return reliability_metrics
 
-def detect_anomalies(so2_data, contamination=0.05):
-    """Detección de anomalías usando Isolation Forest"""
+def detect_anomalies(so2_data, contamination=0.03):
+    """Detección de anomalías usando Isolation Forest con umbral ajustado"""
     iso_forest = IsolationForest(contamination=contamination, random_state=42)
     anomalies = iso_forest.fit_predict(so2_data[['SO2']])
     so2_data['is_anomaly'] = anomalies
@@ -60,6 +64,7 @@ def analyze_temporal_patterns(so2_data):
     so2_data['hour'] = so2_data['Measurement date'].dt.hour
     so2_data['day_of_week'] = so2_data['Measurement date'].dt.dayofweek
     so2_data['month'] = so2_data['Measurement date'].dt.month
+    so2_data['season'] = so2_data['month'].apply(lambda x: (x % 12 + 3) // 3)
     
     # Calcular promedios por hora
     hourly_avg = so2_data.groupby('hour')['SO2'].mean()
@@ -70,7 +75,10 @@ def analyze_temporal_patterns(so2_data):
     # Calcular promedios por mes
     monthly_avg = so2_data.groupby('month')['SO2'].mean()
     
-    return hourly_avg, daily_avg, monthly_avg
+    # Calcular promedios por estación
+    seasonal_avg = so2_data.groupby('season')['SO2'].mean()
+    
+    return hourly_avg, daily_avg, monthly_avg, seasonal_avg
 
 def calculate_station_correlations(so2_data):
     """Calcula correlaciones entre estaciones"""
@@ -84,10 +92,27 @@ def calculate_station_correlations(so2_data):
     correlation_matrix = station_pivot.corr()
     return correlation_matrix
 
+def calculate_temporal_weights(so2_data):
+    """Calcula pesos basados en patrones temporales"""
+    # Obtener la hora actual (promedio de todas las horas)
+    current_hour = so2_data['hour'].mean()
+    
+    # Calcular pesos por hora
+    hourly_weights = np.exp(-0.1 * (np.arange(24) - current_hour)**2)
+    hourly_weights = hourly_weights / hourly_weights.sum()
+    
+    # Calcular pesos por día de la semana
+    daily_weights = np.ones(7) / 7
+    
+    # Calcular pesos por mes
+    monthly_weights = np.ones(12) / 12
+    
+    return hourly_weights, daily_weights, monthly_weights
+
 def calculate_weighted_so2(so2_data, reliability_metrics, correlation_matrix):
     """Calcula el valor final de SO2 usando pesos basados en confiabilidad y correlaciones"""
-    # Filtrar estaciones confiables (score > 0.6)
-    reliable_stations = reliability_metrics[reliability_metrics['reliability_score'] > 0.6].index
+    # Filtrar estaciones confiables (score > 0.7)
+    reliable_stations = reliability_metrics[reliability_metrics['reliability_score'] > 0.7].index
     so2_data = so2_data[so2_data['Station code'].isin(reliable_stations)]
     
     # Calcular pesos iniciales basados en confiabilidad
@@ -97,6 +122,18 @@ def calculate_weighted_so2(so2_data, reliability_metrics, correlation_matrix):
     for station in reliable_stations:
         correlations = correlation_matrix.loc[station, reliable_stations]
         station_weights[station] *= (1 - correlations.mean())
+    
+    # Calcular pesos temporales
+    hourly_weights, daily_weights, monthly_weights = calculate_temporal_weights(so2_data)
+    
+    # Ajustar pesos con patrones temporales
+    for station in reliable_stations:
+        station_data = so2_data[so2_data['Station code'] == station]
+        hour_weight = hourly_weights[station_data['hour'].iloc[0]]
+        day_weight = daily_weights[station_data['day_of_week'].iloc[0]]
+        month_weight = monthly_weights[station_data['month'].iloc[0] - 1]
+        
+        station_weights[station] *= (hour_weight + day_weight + month_weight) / 3
     
     # Normalizar pesos
     station_weights = station_weights / station_weights.sum()
@@ -136,7 +173,7 @@ def main():
     print(so2_data.groupby('is_anomaly')['SO2'].describe())
     
     print("\nAnalizando patrones temporales...")
-    hourly_avg, daily_avg, monthly_avg = analyze_temporal_patterns(so2_data)
+    hourly_avg, daily_avg, monthly_avg, seasonal_avg = analyze_temporal_patterns(so2_data)
     print("\nPatrones temporales calculados")
     
     print("\nCalculando correlaciones entre estaciones...")
