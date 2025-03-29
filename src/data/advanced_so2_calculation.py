@@ -144,9 +144,30 @@ def perform_clustering(so2_data, reliability_metrics):
     scaler = StandardScaler()
     features_scaled = scaler.fit_transform(features)
     
-    # Aplicar K-means
-    kmeans = KMeans(n_clusters=3, random_state=42)
-    reliability_metrics['cluster'] = kmeans.fit_predict(features_scaled)
+    # Probar diferentes configuraciones de DBSCAN
+    eps_values = [0.5, 0.7, 1.0]
+    min_samples_values = [3, 4, 5]
+    best_silhouette = -1
+    best_labels = None
+    
+    for eps in eps_values:
+        for min_samples in min_samples_values:
+            dbscan = DBSCAN(eps=eps, min_samples=min_samples)
+            labels = dbscan.fit_predict(features_scaled)
+            
+            # Calcular score de silueta si hay más de un cluster
+            if len(np.unique(labels)) > 1:
+                from sklearn.metrics import silhouette_score
+                try:
+                    score = silhouette_score(features_scaled, labels)
+                    if score > best_silhouette:
+                        best_silhouette = score
+                        best_labels = labels
+                except:
+                    continue
+    
+    # Usar los mejores labels encontrados
+    reliability_metrics['cluster'] = best_labels
     
     # Calcular confiabilidad del cluster
     cluster_reliability = reliability_metrics.groupby('cluster')['reliability_score'].mean()
@@ -154,29 +175,61 @@ def perform_clustering(so2_data, reliability_metrics):
     # Asignar peso adicional a estaciones en clusters confiables
     reliability_metrics['cluster_weight'] = reliability_metrics['cluster'].map(cluster_reliability)
     
+    # Ajustar pesos basados en la estabilidad temporal
+    reliability_metrics['temporal_stability'] = calculate_temporal_stability(so2_data, reliability_metrics.index)
+    
     return reliability_metrics
 
-def calculate_weighted_so2(so2_data, reliability_metrics, correlation_matrix):
-    """Calcula el valor final de SO2 usando pesos basados en confiabilidad y correlaciones"""
+def calculate_temporal_stability(so2_data, stations):
+    """Calcula la estabilidad temporal de cada estación"""
+    stability_scores = []
+    
+    for station in stations:
+        station_data = so2_data[so2_data['Station code'] == station].copy()
+        
+        # Calcular variabilidad por hora
+        hourly_std = station_data.groupby('hour')['SO2'].std().mean()
+        
+        # Calcular variabilidad por día
+        daily_std = station_data.groupby('day_of_week')['SO2'].std().mean()
+        
+        # Calcular variabilidad por mes
+        monthly_std = station_data.groupby('month')['SO2'].std().mean()
+        
+        # Calcular score de estabilidad (menor es mejor)
+        stability_score = 1 / (hourly_std + daily_std + monthly_std)
+        stability_scores.append(stability_score)
+    
+    # Normalizar scores
+    stability_scores = np.array(stability_scores)
+    stability_scores = (stability_scores - stability_scores.min()) / (stability_scores.max() - stability_scores.min())
+    
+    return pd.Series(stability_scores, index=stations)
+
+def calculate_adaptive_weights(so2_data, reliability_metrics, correlation_matrix):
+    """Calcula pesos adaptativos basados en múltiples factores"""
     # Filtrar estaciones confiables (score > 0.75)
     reliable_stations = reliability_metrics[reliability_metrics['reliability_score'] > 0.75].index
     so2_data = so2_data[so2_data['Station code'].isin(reliable_stations)]
     
-    # Calcular pesos iniciales basados en confiabilidad
+    # Pesos base de confiabilidad
     station_weights = reliability_metrics.loc[reliable_stations, 'reliability_score']
     
-    # Ajustar pesos considerando correlaciones
+    # Ajustar por correlaciones
     for station in reliable_stations:
         correlations = correlation_matrix.loc[station, reliable_stations]
         station_weights[station] *= (1 - correlations.mean())
     
-    # Ajustar pesos con pesos de cluster
+    # Ajustar por cluster
     station_weights *= reliability_metrics.loc[reliable_stations, 'cluster_weight']
+    
+    # Ajustar por estabilidad temporal
+    station_weights *= reliability_metrics.loc[reliable_stations, 'temporal_stability']
     
     # Calcular pesos temporales
     hourly_weights, daily_weights, monthly_weights = calculate_temporal_weights(so2_data)
     
-    # Ajustar pesos con patrones temporales
+    # Ajustar por patrones temporales
     for station in reliable_stations:
         station_data = so2_data[so2_data['Station code'] == station]
         hour_weight = hourly_weights[station_data['hour'].iloc[0]]
@@ -187,6 +240,17 @@ def calculate_weighted_so2(so2_data, reliability_metrics, correlation_matrix):
     
     # Normalizar pesos
     station_weights = station_weights / station_weights.sum()
+    
+    return station_weights
+
+def calculate_weighted_so2(so2_data, reliability_metrics, correlation_matrix):
+    """Calcula el valor final de SO2 usando pesos adaptativos"""
+    # Filtrar estaciones confiables
+    reliable_stations = reliability_metrics[reliability_metrics['reliability_score'] > 0.75].index
+    so2_data = so2_data[so2_data['Station code'].isin(reliable_stations)]
+    
+    # Calcular pesos adaptativos
+    station_weights = calculate_adaptive_weights(so2_data, reliability_metrics, correlation_matrix)
     
     # Calcular moda ponderada por estación usando KDE
     station_modes = pd.Series(index=reliable_stations)
