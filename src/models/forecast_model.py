@@ -55,10 +55,13 @@ def train_model(station_data, target_pollutant):
     
     # Train model
     model = xgb.XGBRegressor(
-        n_estimators=100,
-        learning_rate=0.1,
-        max_depth=5,
-        random_state=42
+        n_estimators=1000,
+        learning_rate=0.05,  # Lower learning rate for better performance
+        max_depth=7,  # Slightly deeper trees
+        subsample=0.8,  # Randomly sample 80% of the training data
+        colsample_bytree=0.8,  # Use 80% of features at each split
+        random_state=42,
+        n_jobs=-1
     )
     
     model.fit(X_scaled, y)
@@ -67,7 +70,7 @@ def train_model(station_data, target_pollutant):
 
 def generate_future_dates(start_date, end_date):
     """Generate hourly dates between start and end date."""
-    dates = pd.date_range(start=start_date, end=end_date, freq='H')
+    dates = pd.date_range(start=start_date, end=end_date, freq='h')
     return dates
 
 def prepare_prediction_data(dates, last_known_values, target_pollutant):
@@ -150,10 +153,11 @@ def main():
     
     # Save predictions
     predictions_dir = Path("predictions")
+    predictions_dir.mkdir(parents=True, exist_ok=True)  # Ensure the directory exists
     with open(predictions_dir / "predictions_task_2.json", "w") as f:
         json.dump(predictions, f, indent=2)
     
     print("Predictions saved to predictions_task_2.json!")
 
 if __name__ == "__main__":
-    main() 
+    main()
