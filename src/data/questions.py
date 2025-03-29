@@ -142,23 +142,55 @@ def answer_questions(measurement_df, instrument_df, pollutant_df):
     
     return answers
 
+def calculate_so2():
+    measurement_df, instrument_df, _ = load_processed_data()
+    
+    # Filtrar mediciones normales de SO2
+    normal_so2 = instrument_df[
+        (instrument_df['Instrument status'] == 0) &
+        (instrument_df['Item code'] == 0)
+    ]
+    
+    # Merge con mediciones
+    valid_measurements = normal_so2.groupby(['Measurement date', 'Station code']).size().reset_index()
+    so2_data = pd.merge(
+        measurement_df,
+        valid_measurements[['Measurement date', 'Station code']],
+        on=['Measurement date', 'Station code']
+    )
+    
+    # Filtrar estaciones con más de 24,000 mediciones
+    station_counts = so2_data.groupby('Station code').size()
+    reliable_stations = station_counts[station_counts > 24000].index
+    so2_data = so2_data[so2_data['Station code'].isin(reliable_stations)]
+    
+    # Calcular pesos basados en el número de mediciones
+    station_weights = station_counts[reliable_stations]
+    station_weights = station_weights / station_weights.sum()
+    
+    # Calcular mediana ponderada por estación
+    station_medians = so2_data.groupby('Station code')['SO2'].median()
+    weighted_median = np.average(station_medians, weights=station_weights)
+    
+    return weighted_median
+
 def main():
-    # Load data
-    measurement_df, instrument_df, pollutant_df = load_processed_data()
+    # Calcular SO2
+    so2_value = calculate_so2()
     
-    # Get answers
-    answers = answer_questions(measurement_df, instrument_df, pollutant_df)
+    # Cargar el archivo JSON existente
+    output_file = Path("predictions/questions.json")
+    with open(output_file, 'r') as f:
+        data = json.load(f)
     
-    # Save answers to JSON
-    predictions_dir = Path("predictions")
-    predictions_dir.mkdir(exist_ok=True)
+    # Actualizar el valor de SO2
+    data['SO2'] = float(so2_value)
     
-    with open(predictions_dir / "questions.json", "w") as f:
-        json.dump(answers, f, indent=2)
+    # Guardar el archivo JSON actualizado
+    with open(output_file, 'w') as f:
+        json.dump(data, f, indent=4)
     
-    print("Answers saved to questions.json!")
-    print("\nAnswers preview:")
-    print(json.dumps(answers, indent=2))
+    print(f"SO2 value calculated: {so2_value}")
 
 if __name__ == "__main__":
     main()
