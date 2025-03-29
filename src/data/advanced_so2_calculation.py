@@ -137,6 +137,88 @@ def estimate_mode(so2_data, station):
     mode = x_range[np.argmax(density)]
     return mode
 
+def calculate_geographic_distance(lat1, lon1, lat2, lon2):
+    """Calcula la distancia en kilómetros entre dos puntos geográficos"""
+    R = 6371  # Radio de la Tierra en km
+    
+    lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    
+    a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
+    c = 2 * np.arcsin(np.sqrt(a))
+    distance = R * c
+    
+    return distance
+
+def validate_clusters(features_scaled, labels, station_coords):
+    """Valida la calidad de los clusters usando múltiples métricas"""
+    if len(np.unique(labels)) <= 1:
+        return -1
+    
+    # Calcular score de silueta
+    from sklearn.metrics import silhouette_score
+    try:
+        silhouette = silhouette_score(features_scaled, labels)
+    except:
+        silhouette = -1
+    
+    # Calcular score de Davies-Bouldin
+    from sklearn.metrics import davies_bouldin_score
+    try:
+        davies_bouldin = davies_bouldin_score(features_scaled, labels)
+    except:
+        davies_bouldin = float('inf')
+    
+    # Calcular score de Calinski-Harabasz
+    from sklearn.metrics import calinski_harabasz_score
+    try:
+        calinski_harabasz = calinski_harabasz_score(features_scaled, labels)
+    except:
+        calinski_harabasz = -1
+    
+    # Calcular score de cohesión geográfica
+    geographic_score = calculate_geographic_cohesion(labels, station_coords)
+    
+    # Combinar scores (mayor es mejor)
+    final_score = (silhouette + geographic_score) / 2
+    
+    return final_score
+
+def calculate_geographic_cohesion(labels, station_coords):
+    """Calcula qué tan cohesivos son los clusters geográficamente"""
+    unique_labels = np.unique(labels)
+    if len(unique_labels) <= 1:
+        return 0
+    
+    cohesion_scores = []
+    for label in unique_labels:
+        if label == -1:  # Ignorar ruido
+            continue
+        
+        # Obtener coordenadas de estaciones en el cluster
+        cluster_mask = labels == label
+        cluster_coords = station_coords[cluster_mask]
+        
+        if len(cluster_coords) < 2:
+            continue
+        
+        # Calcular matriz de distancias
+        distances = []
+        for i in range(len(cluster_coords)):
+            for j in range(i+1, len(cluster_coords)):
+                dist = calculate_geographic_distance(
+                    cluster_coords[i][0], cluster_coords[i][1],
+                    cluster_coords[j][0], cluster_coords[j][1]
+                )
+                distances.append(dist)
+        
+        # Score de cohesión (menor distancia media = mejor)
+        if distances:
+            cohesion_scores.append(1 / (1 + np.mean(distances)))
+    
+    return np.mean(cohesion_scores) if cohesion_scores else 0
+
 def perform_clustering(so2_data, reliability_metrics):
     """Realiza clustering de estaciones basado en sus características"""
     # Preparar datos para clustering
@@ -144,10 +226,17 @@ def perform_clustering(so2_data, reliability_metrics):
     scaler = StandardScaler()
     features_scaled = scaler.fit_transform(features)
     
+    # Obtener coordenadas de las estaciones
+    station_coords = []
+    for station in reliability_metrics.index:
+        station_data = so2_data[so2_data['Station code'] == station].iloc[0]
+        station_coords.append([station_data['Latitude'], station_data['Longitude']])
+    station_coords = np.array(station_coords)
+    
     # Probar diferentes configuraciones de DBSCAN
-    eps_values = [0.5, 0.7, 1.0]
-    min_samples_values = [3, 4, 5]
-    best_silhouette = -1
+    eps_values = [0.3, 0.5, 0.7, 1.0]
+    min_samples_values = [3, 4, 5, 6]
+    best_score = -1
     best_labels = None
     
     for eps in eps_values:
@@ -155,16 +244,12 @@ def perform_clustering(so2_data, reliability_metrics):
             dbscan = DBSCAN(eps=eps, min_samples=min_samples)
             labels = dbscan.fit_predict(features_scaled)
             
-            # Calcular score de silueta si hay más de un cluster
-            if len(np.unique(labels)) > 1:
-                from sklearn.metrics import silhouette_score
-                try:
-                    score = silhouette_score(features_scaled, labels)
-                    if score > best_silhouette:
-                        best_silhouette = score
-                        best_labels = labels
-                except:
-                    continue
+            # Validar clusters
+            score = validate_clusters(features_scaled, labels, station_coords)
+            
+            if score > best_score:
+                best_score = score
+                best_labels = labels
     
     # Usar los mejores labels encontrados
     reliability_metrics['cluster'] = best_labels
