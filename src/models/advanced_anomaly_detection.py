@@ -189,59 +189,169 @@ def generate_structured_anomalies(station_id, pollutant, start_date, end_date, t
         # Inicializar como funcionamiento normal
         anomalies = {hour: 0 for hour in all_hours}
         
-        # Generar anomalías con patrones temporales
+        # Generar anomalías con patrones temporales y correlaciones entre anomalías
+        
+        # Días laborables vs fines de semana (comportamiento diferente)
+        weekdays = {}
+        for i, h in enumerate(hour_objects):
+            weekdays[all_hours[i]] = h.weekday() < 5  # True para días laborables
+        
+        # MEJORA: Identificar patrones de trabajo con alta carga
+        high_load_hours = {}
+        for i, h in enumerate(hour_objects):
+            # Horas pico en días laborables
+            high_load_hours[all_hours[i]] = (weekdays[all_hours[i]] and (7 <= h.hour <= 10 or 17 <= h.hour <= 19))
+        
+        # Generar secuencias de días para patrones (más realista)
+        days_in_month = (datetime.strptime(end_date, "%Y-%m-%d %H:%M:%S").day - 
+                        datetime.strptime(start_date, "%Y-%m-%d %H:%M:%S").day + 1)
         
         # Errores de calibración (código 1) - más comunes al inicio del mes y mañanas
-        calibration_days = np.random.choice(range(1, 10), size=3, replace=False)
+        # MEJORA: Ahora se agrupan en bloques consecutivos de 2-4 horas para mayor realismo
+        calibration_days = np.random.choice(range(1, min(10, days_in_month)), size=3, replace=False)
         for day in calibration_days:
+            # Calibraciones suelen ocurrir en la mañana (8-12) en bloques
+            start_hour = np.random.choice(range(8, 12))
+            duration = np.random.randint(2, 5)  # 2-4 horas consecutivas
+            
             for i, h in enumerate(hour_objects):
-                if h.day == day and 8 <= h.hour <= 12:
-                    if np.random.random() < 0.7:  # Probabilidad
-                        anomalies[all_hours[i]] = 1
+                if h.day == day and start_hour <= h.hour < start_hour + duration:
+                    anomalies[all_hours[i]] = 1
         
-        # Fallos de sensor (código 2) - ocurren en bloques
-        sensor_failure_starts = np.random.choice(range(len(all_hours) - 12), size=4, replace=False)
+        # MEJORA: Patrones de fallos de sensor más realistas con persistencia de estado
+        # Fallos de sensor (código 2) - ocurren en bloques persistentes
+        sensor_failure_starts = []
+        # Seleccionar algunos puntos de inicio para fallos (evitando solapamientos)
+        for _ in range(4):
+            if len(sensor_failure_starts) == 0:
+                start = np.random.randint(0, len(all_hours) - 24)
+                sensor_failure_starts.append(start)
+            else:
+                # Asegurar que hay al menos 48 horas entre fallos
+                candidate = np.random.randint(0, len(all_hours) - 24)
+                valid = all(abs(candidate - existing) > 48 for existing in sensor_failure_starts)
+                if valid:
+                    sensor_failure_starts.append(candidate)
+        
         for start in sensor_failure_starts:
-            duration = np.random.randint(2, 6)  # Duración del fallo
+            # MEJORA: Los fallos tienen más probabilidad de durar más tiempo
+            duration = np.random.choice([3, 4, 5, 6, 12, 24], p=[0.3, 0.3, 0.2, 0.1, 0.05, 0.05])
             for i in range(duration):
                 if start + i < len(all_hours):
                     anomalies[all_hours[start + i]] = 2
+                    
+                    # MEJORA: Añadir correlación - después de fallo prolongado puede venir calibración
+                    if i == duration - 1 and duration > 4 and np.random.random() < 0.7:
+                        for j in range(1, 3):  # 1-2 horas de calibración tras fallos largos
+                            if start + i + j < len(all_hours):
+                                anomalies[all_hours[start + i + j]] = 1
         
-        # Cortes de energía (código 4) - más comunes por la tarde/noche
+        # MEJORA: Interferencias externas (código 4) - más realistas con base en horarios
+        # Las interferencias son más probables en horas pico y en ciertos días
+        interference_days = np.random.choice(range(1, days_in_month), 
+                                            size=min(7, days_in_month // 4), 
+                                            replace=False)
+        
         for i, h in enumerate(hour_objects):
-            if 16 <= h.hour <= 22 and np.random.random() < 0.04:
+            is_interference_day = h.day in interference_days
+            is_peak_hour = (7 <= h.hour <= 9 or 17 <= h.hour <= 19)
+            is_sensitive_condition = is_interference_day and is_peak_hour
+            
+            # MEJORA: Interferencias más probables en condiciones específicas
+            if is_sensitive_condition and np.random.random() < 0.65:
                 anomalies[all_hours[i]] = 4
-                # Los cortes de energía suelen durar unas horas
-                for j in range(1, 4):
+                
+                # MEJORA: Interferencias pueden durar varias horas seguidas
+                block_duration = np.random.randint(1, 4)
+                for j in range(1, block_duration):
                     if i + j < len(all_hours):
                         anomalies[all_hours[i + j]] = 4
         
-        # Mantenimiento (código 8) - programado en horario laboral
-        maintenance_days = np.random.choice(range(1, 28), size=2, replace=False)
-        for day in maintenance_days:
-            for i, h in enumerate(hour_objects):
-                if h.day == day and 9 <= h.hour <= 16:
-                    anomalies[all_hours[i]] = 8
+        # MEJORA: Mantenimiento más realista (código 8) - programado en horarios específicos
+        # El mantenimiento ocurre en horarios laborables y en bloques completos
+        maintenance_days = np.random.choice(range(1, days_in_month), 
+                                          size=min(2, days_in_month // 15), 
+                                          replace=False)
         
-        # Datos anómalos (código 9) - poco frecuentes
+        for day in maintenance_days:
+            # MEJORA: El mantenimiento suele empezar temprano y durar varias horas
+            maintenance_start = np.random.choice([8, 9, 10])
+            maintenance_duration = np.random.randint(4, 7)  # 4-6 horas de mantenimiento
+            
+            for i, h in enumerate(hour_objects):
+                if h.day == day and maintenance_start <= h.hour < maintenance_start + maintenance_duration:
+                    anomalies[all_hours[i]] = 8
+                    
+                    # MEJORA: Correlación - después del mantenimiento a veces hay calibración
+                    if h.hour == maintenance_start + maintenance_duration - 1 and np.random.random() < 0.8:
+                        for j in range(1, 3):
+                            if i + j < len(all_hours):
+                                anomalies[all_hours[i + j]] = 1
+        
+        # MEJORA: Datos anómalos (código 9) - patrones más realistas
+        # Los errores críticos ocurren con más frecuencia después de otras anomalías
         for i, h in enumerate(hour_objects):
-            # Más probable después de otros errores
+            has_prior_anomaly = False
             if i > 0 and anomalies[all_hours[i-1]] in [2, 4]:
-                if np.random.random() < 0.25:
+                has_prior_anomaly = True
+            
+            # MEJORA: Mayor probabilidad en horas con alto uso o después de anomalías
+            if high_load_hours.get(all_hours[i], False) and np.random.random() < 0.03:
+                anomalies[all_hours[i]] = 9
+            elif has_prior_anomaly and np.random.random() < 0.25:
+                anomalies[all_hours[i]] = 9
+        
+        # MEJORA: Ajustes específicos más detallados por contaminante
+        if pollutant == "SO2":
+            # SO2 tiene más problemas de calibración y errores críticos
+            for i, h in enumerate(hour_objects):
+                # Más calibraciones para SO2 a horas específicas
+                if anomalies[all_hours[i]] == 0 and 9 <= h.hour <= 11 and np.random.random() < 0.08:
+                    anomalies[all_hours[i]] = 1
+                # Más errores críticos en ciertas condiciones
+                elif anomalies[all_hours[i]] == 0 and weekdays.get(all_hours[i], False) and np.random.random() < 0.02:
                     anomalies[all_hours[i]] = 9
         
-        # Ajustes específicos por contaminante
-        if pollutant == "SO2":
-            # SO2 tiene más problemas de calibración
+        elif pollutant == "NO2":
+            # NO2 tiene más interferencias externas en horas pico
             for i, h in enumerate(hour_objects):
-                if anomalies[all_hours[i]] == 0 and np.random.random() < 0.05:
-                    anomalies[all_hours[i]] = 1
+                if anomalies[all_hours[i]] == 0 and high_load_hours.get(all_hours[i], False) and np.random.random() < 0.09:
+                    anomalies[all_hours[i]] = 4
+        
+        elif pollutant == "O3":
+            # O3 tiene más interrupciones durante días cálidos (simulados al azar)
+            hot_days = np.random.choice(range(1, days_in_month), size=min(5, days_in_month // 6), replace=False)
+            for i, h in enumerate(hour_objects):
+                if anomalies[all_hours[i]] == 0 and h.day in hot_days and 12 <= h.hour <= 16 and np.random.random() < 0.12:
+                    anomalies[all_hours[i]] = 4
+        
+        elif pollutant == "CO":
+            # CO tiene más fallos de sensor en la noche
+            for i, h in enumerate(hour_objects):
+                if anomalies[all_hours[i]] == 0 and 0 <= h.hour <= 5 and np.random.random() < 0.07:
+                    anomalies[all_hours[i]] = 2
         
         elif pollutant in ["PM10", "PM2.5"]:
-            # Partículas tienen más fallos de sensor
+            # Partículas tienen más fallos de sensor y más errores críticos
             for i, h in enumerate(hour_objects):
-                if anomalies[all_hours[i]] == 0 and np.random.random() < 0.06:
+                # Fallos de sensor más frecuentes para partículas
+                if anomalies[all_hours[i]] == 0 and np.random.random() < 0.08:
                     anomalies[all_hours[i]] = 2
+                # Los sensores de partículas tienen más errores críticos
+                elif anomalies[all_hours[i]] == 0 and high_load_hours.get(all_hours[i], False) and np.random.random() < 0.04:
+                    anomalies[all_hours[i]] = 9
+        
+        # MEJORA: Reducir anomalías aisladas (poco realistas)
+        # Las anomalías suelen ocurrir en patrones, no aisladas
+        for i in range(1, len(all_hours) - 1):
+            # Si hay una anomalía aislada (no es normal y está entre valores normales)
+            if (anomalies[all_hours[i]] != 0 and 
+                anomalies[all_hours[i-1]] == 0 and 
+                i+1 < len(all_hours) and 
+                anomalies[all_hours[i+1]] == 0):
+                # 50% de probabilidad de extenderla a la siguiente hora
+                if np.random.random() < 0.5:
+                    anomalies[all_hours[i+1]] = anomalies[all_hours[i]]
         
         return anomalies
     
