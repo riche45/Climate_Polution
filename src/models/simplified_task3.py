@@ -107,7 +107,7 @@ def main():
     os.makedirs("predictions", exist_ok=True)
     
     # Diccionario para almacenar todas las predicciones
-    predictions = {}
+    predictions = {"target": {}}
     
     # Procesar cada estación
     for station_id, station_info in stations_periods.items():
@@ -120,20 +120,17 @@ def main():
         )
         
         # Generar predicciones para cada hora
-        station_predictions = []
+        station_predictions = {}
         for hour in hours:
             anomaly = generate_anomaly(hour, station_info["pollutant"])
-            station_predictions.append({
-                "hour": hour,
-                "anomaly": anomaly
-            })
+            station_predictions[hour] = anomaly
         
         # Almacenar predicciones de la estación
-        predictions[station_id] = station_predictions
+        predictions["target"][station_id] = station_predictions
         
         # Imprimir estadísticas de la estación
         total_hours = len(station_predictions)
-        anomaly_hours = sum(1 for p in station_predictions if p["anomaly"] != 0)
+        anomaly_hours = sum(1 for anomaly in station_predictions.values() if anomaly != 0)
         print(f"Total de horas: {total_hours}")
         print(f"Horas con anomalías: {anomaly_hours}")
         print(f"Porcentaje de anomalías: {(anomaly_hours/total_hours)*100:.2f}%")
@@ -147,8 +144,8 @@ def main():
     print(f"\nArchivo de predicciones guardado en: {output_file}")
     
     # Imprimir estadísticas globales
-    total_hours = sum(len(p) for p in predictions.values())
-    total_anomalies = sum(1 for station in predictions.values() for p in station if p["anomaly"] != 0)
+    total_hours = sum(len(p) for p in predictions["target"].values())
+    total_anomalies = sum(1 for station in predictions["target"].values() for anomaly in station.values() if anomaly != 0)
     print(f"\nEstadísticas globales:")
     print(f"Total de horas: {total_hours}")
     print(f"Total de anomalías: {total_anomalies}")
