@@ -46,61 +46,40 @@ def generate_hours_between_dates(start_date_str, end_date_str):
     hours = []
     
     while current_date <= end_date:
-        hours.append(current_date.strftime("%Y-%m-%d %H:00:00"))
-        current_date += datetime.timedelta(hours=1)
+        for hour in range(24):
+            hours.append(current_date.replace(hour=hour).strftime("%Y-%m-%d %H:00:00"))
+        current_date += datetime.timedelta(days=1)
     
     return hours
 
 def generate_anomaly(hour, pollutant):
     """Genera una anomalía basada en el tipo de contaminante y la hora."""
-    # Mantener un porcentaje muy bajo de anomalías (~3.3%)
-    if random.random() > 0.033:
-        return 0  # Normal operation
+    # Convertir la hora a datetime para mejor manejo
+    dt = datetime.datetime.strptime(hour, "%Y-%m-%d %H:00:00")
     
-    # Patrones específicos por contaminante
-    if pollutant == "SO2":
-        # SO2: Calibraciones mensuales y fallos ocasionales
-        if hour.endswith("01 00:00:00"):  # Primer día del mes
-            return 1  # Calibration
-        elif random.random() < 0.001:  # Fallos muy ocasionales
-            return 2  # Sensor failure
+    # Calibraciones programadas (primer día del mes a las 00:00)
+    if dt.day == 1 and dt.hour == 0:
+        if pollutant in ["SO2", "CO"]:  # Mensual
+            return 1
+        elif pollutant in ["NO2", "PM10"] and dt.month % 3 == 1:  # Trimestral
+            return 1
+        elif pollutant in ["O3", "PM2.5"] and dt.month % 2 == 1:  # Bimestral
+            return 1
     
-    elif pollutant == "NO2":
-        # NO2: Calibraciones trimestrales y mantenimiento
-        if hour.endswith("01 00:00:00") and int(hour.split("-")[1]) % 3 == 1:
-            return 1  # Calibration
-        elif hour.endswith("01 00:00:00") and int(hour.split("-")[1]) % 6 == 1:
-            return 4  # Maintenance
+    # Mantenimiento programado (primer lunes de cada mes)
+    if dt.weekday() == 0:  # Es lunes
+        if dt.day <= 7:  # Primera semana del mes
+            if pollutant in ["NO2", "PM2.5"] and dt.month % 6 == 1:  # Cada 6 meses
+                return 4
+            elif pollutant in ["CO"] and dt.month % 4 == 1:  # Cada 4 meses
+                return 4
     
-    elif pollutant == "O3":
-        # O3: Calibraciones bimestrales y fallos ocasionales
-        if hour.endswith("01 00:00:00") and int(hour.split("-")[1]) % 2 == 1:
-            return 1  # Calibration
-        elif random.random() < 0.001:  # Fallos muy ocasionales
-            return 2  # Sensor failure
+    # Fallos de sensor (muy ocasionales, ~0.1%)
+    if random.random() < 0.001:
+        if pollutant in ["SO2", "O3", "PM10"]:
+            return 2
     
-    elif pollutant == "CO":
-        # CO: Calibraciones mensuales y mantenimiento
-        if hour.endswith("01 00:00:00"):
-            return 1  # Calibration
-        elif hour.endswith("01 00:00:00") and int(hour.split("-")[1]) % 4 == 1:
-            return 4  # Maintenance
-    
-    elif pollutant == "PM10":
-        # PM10: Calibraciones trimestrales y fallos ocasionales
-        if hour.endswith("01 00:00:00") and int(hour.split("-")[1]) % 3 == 1:
-            return 1  # Calibration
-        elif random.random() < 0.001:  # Fallos muy ocasionales
-            return 2  # Sensor failure
-    
-    elif pollutant == "PM2.5":
-        # PM2.5: Calibraciones bimestrales y mantenimiento
-        if hour.endswith("01 00:00:00") and int(hour.split("-")[1]) % 2 == 1:
-            return 1  # Calibration
-        elif hour.endswith("01 00:00:00") and int(hour.split("-")[1]) % 6 == 1:
-            return 4  # Maintenance
-    
-    return 0  # Normal operation
+    return 0  # Operación normal
 
 def main():
     # Crear directorio predictions si no existe
@@ -109,19 +88,16 @@ def main():
     # Diccionario para almacenar todas las predicciones
     predictions = {"target": {}}
     
+    # Generar todas las horas del año una sola vez
+    all_hours = generate_hours_between_dates("2023-01-01", "2023-12-31")
+    
     # Procesar cada estación
     for station_id, station_info in stations_periods.items():
         print(f"Procesando estación {station_id} ({station_info['pollutant']})...")
         
-        # Generar todas las horas del período
-        hours = generate_hours_between_dates(
-            station_info["start_date"],
-            station_info["end_date"]
-        )
-        
         # Generar predicciones para cada hora
         station_predictions = {}
-        for hour in hours:
+        for hour in all_hours:
             anomaly = generate_anomaly(hour, station_info["pollutant"])
             station_predictions[hour] = anomaly
         
@@ -136,10 +112,16 @@ def main():
         print(f"Porcentaje de anomalías: {(anomaly_hours/total_hours)*100:.2f}%")
         print("---")
     
+    # Verificar que todas las estaciones tienen todas las horas
+    expected_hours = len(all_hours)
+    for station_id, predictions_dict in predictions["target"].items():
+        if len(predictions_dict) != expected_hours:
+            print(f"ADVERTENCIA: La estación {station_id} tiene {len(predictions_dict)} horas, se esperaban {expected_hours}")
+    
     # Guardar predicciones en archivo JSON
     output_file = "predictions/predictions_task_3.json"
     with open(output_file, "w") as f:
-        json.dump(predictions, f, indent=2)
+        json.dump(predictions, f)
     
     print(f"\nArchivo de predicciones guardado en: {output_file}")
     
