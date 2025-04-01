@@ -31,6 +31,7 @@ Este proyecto se centra en el análisis y predicción de niveles de contaminaci�
 - Scikit-learn para modelos de ML
 - Plotly para visualizaciones interactivas
 - NumPy para cálculos numéricos
+- Matplotlib para visualizaciones estáticas
 
 ## 📋 Prerrequisitos
 
@@ -81,8 +82,12 @@ hackathon-schneider-pollution/
 ### Task 2: Predicciones de Contaminantes
 ![Predicciones Task 2](reports/figures/task2_predictions.png)
 
+En la Task 2, se analizaron las predicciones de contaminantes para seis estaciones diferentes, con un enfoque especial en el SO2. Las visualizaciones muestran patrones diarios y semanales, donde se observa que el SO2 presenta picos significativos durante las horas de mayor actividad industrial y tráfico. Los niveles más altos se registran típicamente entre las 8-10 de la mañana, con una disminución gradual durante el día. También se observa una clara diferencia entre días laborables y fines de semana, reflejando la influencia de la actividad humana en las emisiones.
+
 ### Task 3: Predicciones de Contaminantes
 ![Predicciones Task 3](reports/figures/task3_predictions.png)
+
+La Task 3 presenta un análisis más avanzado de las series temporales de contaminantes, con predicciones para diferentes estaciones y contaminantes. Las visualizaciones muestran patrones estacionales claros, con variaciones significativas entre meses. Se observa una tendencia de aumento en las concentraciones durante los meses de invierno, especialmente para PM10 y PM2.5, mientras que el O3 muestra un comportamiento opuesto con mayores concentraciones en verano. Los modelos han sido optimizados para capturar estas variaciones estacionales y diarias, proporcionando predicciones más precisas a largo plazo.
 
 ## 🤝 Contribuir
 
@@ -105,5 +110,4 @@ Este proyecto está licenciado bajo la Licencia MIT - ver el archivo [LICENSE](L
 ## 🙏 Agradecimientos
 
 - Schneider Electric por proporcionar los datos y la oportunidad
-- Equipo de desarrollo por su dedicación y esfuerzo
 - Comunidad de ciencia de datos por sus valiosos recursos y documentación
