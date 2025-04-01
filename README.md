@@ -4,6 +4,8 @@
 
 Este proyecto se centra en el análisis y predicción de niveles de contaminación atmosférica en diferentes estaciones de monitoreo. El objetivo es desarrollar modelos que puedan predecir con precisión los niveles de contaminantes en el aire, utilizando datos históricos y características ambientales.
 
+> **Nota de Mejora**: Este proyecto representa una primera versión que puede ser mejorada significativamente. Las predicciones actuales pueden ser optimizadas mediante la incorporación de más variables ambientales, la aplicación de técnicas avanzadas de machine learning, y la mejora en la calidad y cantidad de datos de entrenamiento. Se invita a la comunidad a contribuir con mejoras y sugerencias.
+
 ## 🎯 Tareas Realizadas
 
 ### Task 1: Análisis Exploratorio de Datos
@@ -105,7 +107,7 @@ Este proyecto está licenciado bajo la Licencia MIT - ver el archivo [LICENSE](L
 
 ## 👥 Autores
 
-- Ricardo Hernández - [@riche45](https://github.com/riche45)
+- Richard Garcia Vizcaino. - [@riche45](https://github.com/riche45)
 
 ## 🙏 Agradecimientos
 
