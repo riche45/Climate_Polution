@@ -1,101 +1,120 @@
-import os
-import sys
-from pathlib import Path
-import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
 import json
+import pandas as pd
+import matplotlib.pyplot as plt
 import numpy as np
 from datetime import datetime
+import os
 
-# Añadir el directorio raíz al path de Python
-root_dir = Path(__file__).parent.parent.parent
-sys.path.append(str(root_dir))
+def load_predictions():
+    """Carga las predicciones de las tareas 2 y 3."""
+    with open('predictions/predictions_task_2_nuwe_format.json', 'r') as f:
+        task2_predictions = json.load(f)
+    with open('predictions/predictions_task_3.json', 'r') as f:
+        task3_predictions = json.load(f)
+    return task2_predictions, task3_predictions
 
-from src.visualization.task2_visualizer import main as task2_main
-from src.visualization.task3_visualizer import main as task3_main
-
-def load_predictions(task2_file, task3_file):
-    """Cargar predicciones de los archivos JSON."""
-    with open(task2_file, 'r') as f:
-        task2_pred = json.load(f)
-    with open(task3_file, 'r') as f:
-        task3_pred = json.load(f)
-    return task2_pred, task3_pred
-
-def create_task2_visualization(predictions):
-    """Crear visualización para Task 2."""
-    # Crear figura con subplots para cada contaminante
-    fig = go.Figure()
+def create_task2_visualization(task2_predictions):
+    """Crea visualización para Task 2."""
+    # Crear figura con subplots
+    fig, axs = plt.subplots(2, 3, figsize=(15, 10))
+    fig.suptitle("Predicciones de Contaminantes - Task 2")
     
-    for station_code, data in predictions['target'].items():
-        pollutant = data['pollutant']
-        values = data['values']
-        dates = pd.date_range(start=data['start'], end=data['end'], freq='H')
+    # Agregar datos para cada contaminante
+    pollutants = ['SO2', 'NO2', 'O3', 'CO', 'PM10', 'PM2.5']
+    stations = ['206', '211', '217', '219', '225', '228']
+    
+    for i, (pollutant, station) in enumerate(zip(pollutants, stations)):
+        row = i // 3
+        col = i % 3
         
-        fig.add_trace(go.Scatter(
-            x=dates,
-            y=values,
-            name=f'{pollutant} - Estación {station_code}',
-            mode='lines+markers'
-        ))
+        # Extraer datos para este contaminante
+        data = task2_predictions['target'][station]
+        
+        # Convertir el diccionario de datos en listas de fechas y valores
+        dates = []
+        values = []
+        for date_str, value in data.items():
+            dates.append(pd.to_datetime(date_str))
+            values.append(value)
+        
+        # Ordenar por fecha
+        sorted_indices = np.argsort(dates)
+        dates = [dates[i] for i in sorted_indices]
+        values = [values[i] for i in sorted_indices]
+        
+        # Graficar datos
+        axs[row, col].plot(dates, values, label=f'Estación {station}')
+        axs[row, col].set_title(pollutant)
+        axs[row, col].set_xlabel('Fecha')
+        axs[row, col].set_ylabel('Concentración')
+        axs[row, col].tick_params(axis='x', rotation=45)
+        axs[row, col].legend()
     
-    fig.update_layout(
-        title='Predicciones de Contaminantes por Estación',
-        xaxis_title='Fecha',
-        yaxis_title='Concentración',
-        template='plotly_white',
-        height=600
-    )
+    plt.tight_layout()
     
     # Guardar figura
-    output_path = Path('reports/figures/task2_predictions.png')
-    fig.write_image(str(output_path))
+    if not os.path.exists('reports/figures'):
+        os.makedirs('reports/figures')
+    plt.savefig("reports/figures/task2_predictions.png", dpi=300, bbox_inches='tight')
+    plt.close()
+    print("Visualización de Task 2 generada exitosamente")
 
-def create_task3_visualization(predictions):
-    """Crear visualización para Task 3."""
-    # Crear figura con subplots para cada contaminante
-    fig = go.Figure()
+def create_task3_visualization(task3_predictions):
+    """Crea visualización para Task 3."""
+    # Crear figura con subplots
+    fig, axs = plt.subplots(2, 3, figsize=(15, 10))
+    fig.suptitle("Predicciones de Contaminantes - Task 3")
     
-    for station_code, data in predictions['target'].items():
-        pollutant = data['pollutant']
-        values = data['values']
-        dates = pd.date_range(start=data['start'], end=data['end'], freq='H')
+    # Agregar datos para cada contaminante
+    pollutants = ['SO2', 'NO2', 'O3', 'CO', 'PM10', 'PM2.5']
+    stations = ['205', '209', '223', '224', '226', '227']  # Estaciones correctas para Task 3
+    
+    for i, (pollutant, station) in enumerate(zip(pollutants, stations)):
+        row = i // 3
+        col = i % 3
         
-        fig.add_trace(go.Scatter(
-            x=dates,
-            y=values,
-            name=f'{pollutant} - Estación {station_code}',
-            mode='lines+markers'
-        ))
+        # Extraer datos para este contaminante
+        data = task3_predictions['target'][station]
+        
+        # Convertir el diccionario de datos en listas de fechas y valores
+        dates = []
+        values = []
+        for date_str, value in data.items():
+            dates.append(pd.to_datetime(date_str))
+            values.append(value)
+        
+        # Ordenar por fecha
+        sorted_indices = np.argsort(dates)
+        dates = [dates[i] for i in sorted_indices]
+        values = [values[i] for i in sorted_indices]
+        
+        # Graficar datos
+        axs[row, col].plot(dates, values, label=f'Estación {station}')
+        axs[row, col].set_title(pollutant)
+        axs[row, col].set_xlabel('Fecha')
+        axs[row, col].set_ylabel('Concentración')
+        axs[row, col].tick_params(axis='x', rotation=45)
+        axs[row, col].legend()
     
-    fig.update_layout(
-        title='Predicciones Optimizadas de Calidad del Aire',
-        xaxis_title='Fecha',
-        yaxis_title='Concentración',
-        template='plotly_white',
-        height=600
-    )
+    plt.tight_layout()
     
     # Guardar figura
-    output_path = Path('reports/figures/task3_predictions.png')
-    fig.write_image(str(output_path))
+    if not os.path.exists('reports/figures'):
+        os.makedirs('reports/figures')
+    plt.savefig("reports/figures/task3_predictions.png", dpi=300, bbox_inches='tight')
+    plt.close()
+    print("Visualización de Task 3 generada exitosamente")
 
 def main():
     """Función principal para generar visualizaciones."""
+    print("Cargando predicciones...")
+    task2_predictions, task3_predictions = load_predictions()
+    
     print("Generando visualizaciones...")
+    create_task2_visualization(task2_predictions)
+    create_task3_visualization(task3_predictions)
     
-    # Cargar predicciones
-    task2_pred, task3_pred = load_predictions(
-        'predictions/task2_predictions.json',
-        'predictions/task3_predictions.json'
-    )
-    
-    # Crear visualizaciones
-    create_task2_visualization(task2_pred)
-    create_task3_visualization(task3_pred)
-    
-    print("Visualizaciones generadas exitosamente!")
+    print("¡Proceso completado!")
 
 if __name__ == "__main__":
     main() 

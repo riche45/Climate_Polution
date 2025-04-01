@@ -5,4 +5,4 @@ plotly>=5.3.1
 joblib>=1.0.2
 matplotlib>=3.4.3
 seaborn>=0.11.2
-kaleido>=0.2.1  # Para guardar gráficos de plotly como imágenes 
+kaleido>=0.2.1  # Para guardar gráficos de Plotly como imágenes 

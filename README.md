@@ -2,129 +2,108 @@
 
 ## 📊 Proyecto de Predicción de Contaminación Atmosférica
 
-Este proyecto fue desarrollado como parte del Hackathon Schneider Electric, enfocado en la predicción de niveles de contaminación atmosférica en Madrid. El objetivo es demostrar la implementación práctica de modelos de machine learning y análisis de datos para la predicción de contaminantes.
+Este proyecto se centra en el análisis y predicción de niveles de contaminación atmosférica en diferentes estaciones de monitoreo. El objetivo es desarrollar modelos que puedan predecir con precisión los niveles de contaminantes en el aire, utilizando datos históricos y características ambientales.
 
-## 🎯 Resultados
+## 🎯 Tareas Realizadas
 
 ### Task 1: Análisis Exploratorio de Datos
-- **Score**: 0.89 (R²)
-- **Descripción**: Análisis detallado de patrones de contaminación en Madrid, incluyendo:
-  - Correlaciones entre contaminantes
-  - Patrones temporales
-  - Distribución espacial
-  - Análisis de estaciones
+- Análisis detallado de la calidad del aire
+- Identificación de patrones temporales
+- Caracterización de contaminantes
+- Visualización de tendencias
 
 ### Task 2: Predicción de Contaminantes
-- **Score**: 57%
-- **Descripción**: Predicción de niveles de contaminación para diferentes estaciones y contaminantes:
-  - SO2 (Estación 206)
-  - NO2 (Estación 211)
-  - O3 (Estación 217)
-  - CO (Estación 219)
-  - PM10 (Estación 225)
-  - PM2.5 (Estación 228)
+- Desarrollo de modelos para múltiples contaminantes
+- Optimización de predicciones por estación
+- Análisis de patrones temporales
+- Visualización de resultados
 
-### Task 3: Predicción de Calidad del Aire
-- **Score**: 0.89 (R²)
-- **Descripción**: Modelo optimizado para predicción de calidad del aire con:
-  - Características temporales avanzadas
-  - Patrones estacionales
-  - Correlaciones entre contaminantes
-  - Validación robusta
+### Task 3: Predicción Avanzada
+- Modelos de predicción optimizados
+- Análisis de correlaciones entre contaminantes
+- Predicciones a largo plazo
+- Evaluación de precisión
 
 ## 🛠️ Tecnologías Utilizadas
+
 - Python 3.8+
-- scikit-learn
-- pandas
-- numpy
-- plotly
-- matplotlib
-- seaborn
+- Pandas para análisis de datos
+- Scikit-learn para modelos de ML
+- Plotly para visualizaciones interactivas
+- NumPy para cálculos numéricos
 
 ## 📋 Prerrequisitos
+
 - Python 3.8 o superior
 - pip (gestor de paquetes de Python)
 - Git
 
-## 🔧 Instalación
+## 🚀 Instalación
 
-1. Clonar el repositorio:
+1. Clona el repositorio:
 ```bash
 git clone https://github.com/riche45/hackathon-schneider-pollution.git
 cd hackathon-schneider-pollution
 ```
 
-2. Crear y activar entorno virtual:
+2. Crea y activa un entorno virtual:
 ```bash
 python -m venv venv
 source venv/bin/activate  # En Windows: venv\Scripts\activate
 ```
 
-3. Instalar dependencias:
+3. Instala las dependencias:
 ```bash
 pip install -r requirements.txt
 ```
 
-## 📊 Estructura del Proyecto
+## 📁 Estructura del Proyecto
+
 ```
 hackathon-schneider-pollution/
 ├── data/
-│   ├── raw/              # Datos originales
-│   └── processed/        # Datos procesados
-├── models/               # Modelos entrenados
-├── predictions/          # Predicciones generadas
+│   ├── raw/           # Datos originales
+│   └── processed/     # Datos procesados
+├── models/            # Modelos entrenados
+├── predictions/       # Resultados de predicciones
 ├── reports/
-│   └── figures/         # Visualizaciones
+│   └── figures/      # Visualizaciones y gráficos
 ├── src/
-│   ├── data/            # Scripts de procesamiento
-│   ├── models/          # Scripts de modelos
-│   └── visualization/   # Scripts de visualización
+│   ├── models/       # Scripts de modelos
+│   └── visualization/# Scripts de visualización
+├── README.md
 ├── requirements.txt
-└── README.md
+└── LICENSE
 ```
 
-## 🚀 Uso
+## 📊 Visualizaciones
 
-1. Generar predicciones para Task 2:
-```bash
-python src/models/task2_optimized_model.py
-```
-
-2. Generar predicciones para Task 3:
-```bash
-python src/models/task3_optimized_model.py
-```
-
-3. Generar visualizaciones:
-```bash
-python src/visualization/generate_visualizations.py
-```
-
-## 📈 Visualizaciones
-
-### Task 2: Predicciones por Contaminante
+### Task 2: Predicciones de Contaminantes
 ![Predicciones Task 2](reports/figures/task2_predictions.png)
-*Predicciones de niveles de contaminación para diferentes estaciones y contaminantes*
 
-### Task 3: Predicción de Calidad del Aire
+### Task 3: Predicciones de Contaminantes
 ![Predicciones Task 3](reports/figures/task3_predictions.png)
-*Predicciones de calidad del aire con modelo optimizado*
 
 ## 🤝 Contribuir
-Las contribuciones son bienvenidas. Por favor, abre un issue primero para discutir los cambios que te gustaría realizar.
 
-## 📝 Licencia
+Las contribuciones son bienvenidas. Por favor, sigue estos pasos:
+
+1. Haz un fork del repositorio
+2. Crea una rama para tu feature (`git checkout -b feature/AmazingFeature`)
+3. Commit tus cambios (`git commit -m 'Add some AmazingFeature'`)
+4. Push a la rama (`git push origin feature/AmazingFeature`)
+5. Abre un Pull Request
+
+## 📄 Licencia
+
 Este proyecto está licenciado bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) para más detalles.
 
-## 👤 Autor
-Richard Garcia - @riche45
+## 👥 Autores
 
-Desarrollador especializado en machine learning y análisis de datos ambientales.
+- Ricardo Hernández - [@riche45](https://github.com/riche45)
 
 ## 🙏 Agradecimientos
-- Schneider Electric
-- scikit-learn
-- pandas
-- plotly
-- matplotlib
-- seaborn
+
+- Schneider Electric por proporcionar los datos y la oportunidad
+- Equipo de desarrollo por su dedicación y esfuerzo
+- Comunidad de ciencia de datos por sus valiosos recursos y documentación
